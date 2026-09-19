@@ -1,0 +1,18 @@
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+exclude = [
+    ".git",
+    "__pycache__",
+    "venv",
+    "env",
+    ".venv",
+    "notebooks",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

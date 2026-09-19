@@ -1,0 +1,5 @@
+# Dev + test dependencies
+pytest==7.4.3
+pytest-mock==3.12.0
+ruff==0.1.5
+numpy==1.24.3

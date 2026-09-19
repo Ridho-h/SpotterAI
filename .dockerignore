@@ -1,14 +1,40 @@
-.git
-.ipynb_checkpoints
-data
-logs
-old
-research
-tests
-LICENSE
-README.md
-*.mp4
-*.png
-*.h5
-!models/*.h5
+# Git
+.git/
 .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+venv/
+env/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/
+
+# Dev files
+tests/
+.github/
+requirements-dev.txt
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
+README.md
+assets/
+*.png
+*.jpg
+
+# Environment
+.env
+*.env
