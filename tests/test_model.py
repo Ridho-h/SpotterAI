@@ -141,22 +141,17 @@ class TestBuildModel:
         y = model.predict(x, verbose=0)
         assert y.shape == (4, 3)
 
-    def test_load_weights_called_when_path_given(self, model_module, mocker):
+    def test_load_weights_called_when_path_given(self, model_module):
         """When weights_path is provided, model.load_weights should be called once."""
+        from unittest.mock import patch
         fake_path = "fake_model.h5"
-        # Patch load_weights on the keras Model class so no file is touched
-        mock_load = mocker.patch(
-            "tensorflow.keras.models.Model.load_weights",
-            return_value=None,
-        )
-        _build(model_module, weights_path=fake_path)
-        mock_load.assert_called_once_with(fake_path)
+        with patch("tensorflow.keras.models.Model.load_weights", return_value=None) as mock_load:
+            _build(model_module, weights_path=fake_path)
+            mock_load.assert_called_once_with(fake_path)
 
-    def test_no_weights_loaded_when_path_is_none(self, model_module, mocker):
+    def test_no_weights_loaded_when_path_is_none(self, model_module):
         """When weights_path=None (default), load_weights must NOT be called."""
-        mock_load = mocker.patch(
-            "tensorflow.keras.models.Model.load_weights",
-            return_value=None,
-        )
-        _build(model_module, weights_path=None)
-        mock_load.assert_not_called()
+        from unittest.mock import patch
+        with patch("tensorflow.keras.models.Model.load_weights", return_value=None) as mock_load:
+            _build(model_module, weights_path=None)
+            mock_load.assert_not_called()

@@ -7,11 +7,12 @@ services:
       - "8501:8501"
     volumes:
       - ./models:/app/models  # Mount models directory
+      - ./data:/app/data      # Mount SQLite workout session database
     environment:
       - TF_CPP_MIN_LOG_LEVEL=2
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
       interval: 30s
       timeout: 10s
       retries: 3

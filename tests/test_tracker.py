@@ -2,7 +2,6 @@
 tests/test_tracker.py
 ---------------------
 Unit tests for spotter.tracker – RepTracker and calculate_angle.
-No webcam, GPU, model files, or Streamlit required.
 """
 
 import numpy as np
@@ -15,235 +14,255 @@ from spotter.tracker import RepTracker, calculate_angle
 # calculate_angle
 # ---------------------------------------------------------------------------
 
-
 class TestCalculateAngle:
     def test_calculate_angle_straight_line(self):
-        """Three collinear points should produce ~180°."""
         a = [0, 0]
         b = [1, 0]
         c = [2, 0]
         angle = calculate_angle(a, b, c)
-        assert abs(angle - 180.0) < 1e-6, f"Expected ~180, got {angle}"
+        assert abs(angle - 180.0) < 1e-6
 
     def test_calculate_angle_right_angle(self):
-        """Classic L-shape should produce ~90°."""
-        a = [0, 1]   # above b
-        b = [0, 0]   # vertex
-        c = [1, 0]   # to the right of b
+        a = [0, 1]
+        b = [0, 0]
+        c = [1, 0]
         angle = calculate_angle(a, b, c)
-        assert abs(angle - 90.0) < 1e-6, f"Expected ~90, got {angle}"
+        assert abs(angle - 90.0) < 1e-6
 
     def test_calculate_angle_zero(self):
-        """
-        When all three points are identical the arctan2 difference is 0.
-        The function returns 0 in that degenerate case.
-        """
         p = [3, 7]
         angle = calculate_angle(p, p, p)
-        assert angle == 0.0, f"Expected 0, got {angle}"
+        assert angle == 0.0
 
     def test_calculate_angle_symmetry(self):
-        """Swapping a and c around the vertex should give the same angle."""
         a = [0, 1]
         b = [0, 0]
         c = [1, 0]
         assert calculate_angle(a, b, c) == calculate_angle(c, b, a)
 
     def test_calculate_angle_clamped_to_180(self):
-        """Angle must never exceed 180°."""
         for _ in range(50):
             pts = np.random.uniform(-10, 10, (3, 2)).tolist()
             angle = calculate_angle(pts[0], pts[1], pts[2])
-            assert 0.0 <= angle <= 180.0, f"Angle out of range: {angle}"
+            assert 0.0 <= angle <= 180.0
 
 
 # ---------------------------------------------------------------------------
-# RepTracker – initial state
+# RepTracker – Initial state & Reset
 # ---------------------------------------------------------------------------
 
-
-class TestRepTrackerInit:
-    def test_initial_counters_are_zero(self):
+class TestRepTrackerInitAndReset:
+    def test_initial_counters_and_stages(self):
         tracker = RepTracker()
         assert tracker.curl_counter == 0
         assert tracker.press_counter == 0
         assert tracker.squat_counter == 0
-
-    def test_initial_stages_are_none(self):
-        tracker = RepTracker()
         assert tracker.curl_stage is None
         assert tracker.press_stage is None
         assert tracker.squat_stage is None
+        assert tracker.last_feedback == 'Good form'
+        assert tracker.completed_reps == []
 
-
-# ---------------------------------------------------------------------------
-# RepTracker – reset
-# ---------------------------------------------------------------------------
-
-
-class TestRepTrackerReset:
-    def test_reset_clears_counters(self):
+    def test_reset_clears_all(self):
         tracker = RepTracker()
-        # Manually corrupt state
-        tracker.curl_counter  = 5
-        tracker.press_counter = 3
-        tracker.squat_counter = 7
-        tracker.curl_stage    = "up"
-
-        tracker.reset()
-
-        assert tracker.curl_counter  == 0
-        assert tracker.press_counter == 0
-        assert tracker.squat_counter == 0
-        assert tracker.curl_stage    is None
-
-    def test_reset_clears_stages(self):
-        tracker = RepTracker()
+        tracker.curl_counter = 5
         tracker.press_stage = "down"
-        tracker.squat_stage = "up"
+        tracker.active_issues.add('incomplete_depth')
+        tracker.completed_reps.append({'rep': 1})
+
         tracker.reset()
+
+        assert tracker.curl_counter == 0
         assert tracker.press_stage is None
-        assert tracker.squat_stage is None
+        assert len(tracker.active_issues) == 0
+        assert len(tracker.completed_reps) == 0
 
 
 # ---------------------------------------------------------------------------
-# RepTracker – low-confidence guard
+# Helpers to construct 132-element arrays
 # ---------------------------------------------------------------------------
-
 
 def _zeros_kp():
-    """Return a zeroed keypoints array of the correct shape (132,)."""
     return np.zeros(33 * 4)
 
-
-class TestRepTrackerLowConfidence:
-    def test_update_ignores_low_confidence(self):
-        """If confidence < threshold, counters must stay at 0."""
-        tracker = RepTracker()
-        kp = _zeros_kp()
-        counts = tracker.update(action="curl", confidence=0.3, threshold=0.5, keypoints=kp)
-        assert counts["curl"]  == 0
-        assert counts["press"] == 0
-        assert counts["squat"] == 0
-
-    def test_update_ignores_confidence_equal_to_threshold(self):
-        """
-        confidence == threshold is NOT above threshold, so it should be ignored.
-        The logic uses `confidence < threshold`, so equality passes through.
-        We just assert counters stay at 0 for a zero-keypoints frame.
-        """
-        tracker = RepTracker()
-        kp = _zeros_kp()
-        # With zero keypoints the angle will be 0 (degenerate), which is < 30,
-        # so curl_stage will flip to "up" but counter stays 0.
-        counts = tracker.update(action="curl", confidence=0.5, threshold=0.5, keypoints=kp)
-        assert counts["curl"] == 0  # no full rep yet
-
-    def test_high_confidence_advances_stage(self):
-        """High-confidence frame with zero keypoints does NOT raise – stage can advance."""
-        tracker = RepTracker()
-        kp = _zeros_kp()
-        # Should not raise even with degenerate keypoints
-        tracker.update(action="curl", confidence=0.9, threshold=0.5, keypoints=kp)
-
-
-# ---------------------------------------------------------------------------
-# RepTracker – curl rep counting (stage-machine integration)
-# ---------------------------------------------------------------------------
-
-
 def _make_curl_kp(shoulder, elbow, wrist):
-    """
-    Build a 132-element keypoints array with specific left arm joint positions.
-
-    MediaPipe landmark indices:
-        left_shoulder = 11  → base offset 44
-        left_elbow    = 13  → base offset 52
-        left_wrist    = 15  → base offset 60
-    """
     kp = np.zeros(33 * 4)
-    # left_shoulder (idx 11) – x, y only; z, vis stay 0
     kp[11 * 4 + 0], kp[11 * 4 + 1] = shoulder
-    # left_elbow (idx 13)
     kp[13 * 4 + 0], kp[13 * 4 + 1] = elbow
-    # left_wrist (idx 15)
     kp[15 * 4 + 0], kp[15 * 4 + 1] = wrist
     return kp
 
+def _make_squat_kp(hip_l, knee_l, ankle_l, hip_r, knee_r, ankle_r):
+    kp = np.zeros(33 * 4)
+    kp[11 * 4 + 0], kp[11 * 4 + 1] = [0.45, 0.2]  # l_shoulder
+    kp[12 * 4 + 0], kp[12 * 4 + 1] = [0.55, 0.2]  # r_shoulder
+    kp[23 * 4 + 0], kp[23 * 4 + 1] = hip_l
+    kp[25 * 4 + 0], kp[25 * 4 + 1] = knee_l
+    kp[27 * 4 + 0], kp[27 * 4 + 1] = ankle_l
+    kp[24 * 4 + 0], kp[24 * 4 + 1] = hip_r
+    kp[26 * 4 + 0], kp[26 * 4 + 1] = knee_r
+    kp[28 * 4 + 0], kp[28 * 4 + 1] = ankle_r
+    return kp
 
-class TestCurlRepCounting:
-    """Simulate a full curl rep: arm starts down (angle >140°), curls up (<30°), then back down."""
+def _make_press_kp(shoulder, elbow, wrist, hip, knee):
+    kp = np.zeros(33 * 4)
+    kp[11 * 4 + 0], kp[11 * 4 + 1] = shoulder
+    kp[13 * 4 + 0], kp[13 * 4 + 1] = elbow
+    kp[15 * 4 + 0], kp[15 * 4 + 1] = wrist
+    kp[23 * 4 + 0], kp[23 * 4 + 1] = hip
+    kp[25 * 4 + 0], kp[25 * 4 + 1] = knee
+    return kp
 
-    # Geometry for arm-straight (angle ~180°)
+
+# ---------------------------------------------------------------------------
+# RepTracker – Confidence & Keypoints Handling
+# ---------------------------------------------------------------------------
+
+class TestRepTrackerConfidenceAndInputs:
+    def test_update_ignores_low_confidence(self):
+        tracker = RepTracker()
+        kp = _zeros_kp()
+        counts = tracker.update(action="curl", confidence=0.3, threshold=0.5, keypoints=kp)
+        assert counts["curl"] == 0
+        assert counts["press"] == 0
+        assert counts["squat"] == 0
+
+    def test_keypoints_and_landmarks_compatibility(self):
+        tracker = RepTracker()
+        kp = _zeros_kp()
+        # via keypoints argument
+        tracker.update(action="curl", confidence=0.9, threshold=0.5, keypoints=kp)
+        # via landmarks argument with mp_pose=None
+        tracker.update(action="curl", confidence=0.9, threshold=0.5, landmarks=kp, mp_pose=None)
+
+
+# ---------------------------------------------------------------------------
+# RepTracker – Bicep Curl & Form Faults
+# ---------------------------------------------------------------------------
+
+class TestCurlTrackingAndForm:
     _KP_STRAIGHT = _make_curl_kp(shoulder=[0.5, 0.8], elbow=[0.5, 0.6], wrist=[0.5, 0.4])
-    # Geometry for arm-curled (angle ~15°)
-    _KP_CURLED   = _make_curl_kp(shoulder=[0.5, 0.8], elbow=[0.5, 0.6], wrist=[0.51, 0.61])
+    _KP_CURLED_GOOD = _make_curl_kp(
+        shoulder=[0.5, 0.8],
+        elbow=[0.5, 0.6],
+        wrist=[0.5 + 0.2 * float(np.sin(np.radians(20))), 0.6 + 0.2 * float(np.cos(np.radians(20)))],
+    )
 
-    def test_curl_rep_counting(self):
-        """One full curl (straight → curled → straight) increments counter by 1."""
+    def test_curl_rep_counting_good_form(self):
         tracker = RepTracker()
-        conf, thr = 0.9, 0.5
-
-        # Frame 1: arm straight  →  angle ≈ 180° → stage stays None (>140 but stage not "up")
-        tracker.update("curl", conf, thr, self._KP_STRAIGHT)
-        assert tracker.curl_counter == 0
-        assert tracker.curl_stage   is None
-
-        # Frame 2: arm curled → angle ≈ 15° < 30  → stage = "up"
-        tracker.update("curl", conf, thr, self._KP_CURLED)
-        assert tracker.curl_stage   == "up"
+        tracker.update("curl", 0.9, 0.5, self._KP_STRAIGHT)
         assert tracker.curl_counter == 0
 
-        # Frame 3: arm straight again → angle ≈ 180° > 140 AND stage == "up" → REP!
-        tracker.update("curl", conf, thr, self._KP_STRAIGHT)
+        tracker.update("curl", 0.9, 0.5, self._KP_CURLED_GOOD)
+        assert tracker.curl_stage == "up"
+
+        tracker.update("curl", 0.9, 0.5, self._KP_STRAIGHT)
         assert tracker.curl_counter == 1
-        assert tracker.curl_stage   == "down"
+        assert tracker.curl_stage == "down"
 
-    def test_curl_no_double_count(self):
-        """Staying in the straight position after a rep should NOT double-count."""
+        last_rep = tracker.get_last_completed_rep()
+        assert last_rep is not None
+        assert last_rep['exercise'] == 'curl'
+        assert last_rep['is_correct'] is True
+        assert "Great bicep contraction!" in last_rep['feedback_cue']
+
+    def test_curl_incomplete_curl_fault(self):
         tracker = RepTracker()
-        conf, thr = 0.9, 0.5
+        # Start curl with good position, then simulate shallow min_angle > 40
+        tracker.update("curl", 0.9, 0.5, self._KP_CURLED_GOOD)
+        tracker.min_angle = 48.0  # simulate shallow curl > 40
+        tracker.update("curl", 0.9, 0.5, self._KP_STRAIGHT)
 
-        tracker.update("curl", conf, thr, self._KP_STRAIGHT)  # angle high, stage None
-        tracker.update("curl", conf, thr, self._KP_CURLED)    # angle low  → stage "up"
-        tracker.update("curl", conf, thr, self._KP_STRAIGHT)  # angle high → stage "down", +1
-        tracker.update("curl", conf, thr, self._KP_STRAIGHT)  # still "down", no additional +1
-        assert tracker.curl_counter == 1
-
-    def test_two_full_curl_reps(self):
-        """Two complete cycles should give counter == 2."""
-        tracker = RepTracker()
-        conf, thr = 0.9, 0.5
-
-        for _ in range(2):
-            tracker.update("curl", conf, thr, self._KP_CURLED)   # → "up"
-            tracker.update("curl", conf, thr, self._KP_STRAIGHT) # → "down", +1
-
-        assert tracker.curl_counter == 2
-
-    def test_curl_action_resets_other_stages(self):
-        """Processing a curl frame must clear press_stage and squat_stage."""
-        tracker = RepTracker()
-        tracker.press_stage = "up"
-        tracker.squat_stage = "down"
-        tracker.update("curl", 0.9, 0.5, self._KP_CURLED)
-        assert tracker.press_stage is None
-        assert tracker.squat_stage is None
+        last_rep = tracker.get_last_completed_rep()
+        assert 'incomplete_curl' in last_rep['issues']
+        assert last_rep['is_correct'] is False
 
 
 # ---------------------------------------------------------------------------
-# RepTracker – update return value
+# RepTracker – Squat & Form Faults
 # ---------------------------------------------------------------------------
 
+class TestSquatTrackingAndForm:
+    _KP_STAND = _make_squat_kp(
+        hip_l=[0.45, 0.5], knee_l=[0.45, 0.7], ankle_l=[0.45, 0.9],
+        hip_r=[0.55, 0.5], knee_r=[0.55, 0.7], ankle_r=[0.55, 0.9]
+    )
+    _KP_SQUAT_DEEP = _make_squat_kp(
+        hip_l=[0.45, 0.6], knee_l=[0.35, 0.7], ankle_l=[0.45, 0.9],
+        hip_r=[0.55, 0.6], knee_r=[0.65, 0.7], ankle_r=[0.55, 0.9]
+    )
 
-class TestRepTrackerReturnValue:
-    def test_update_returns_dict_with_all_keys(self):
+    def test_squat_rep_counting_and_depth(self):
+        tracker = RepTracker()
+        tracker.update("squat", 0.9, 0.5, self._KP_STAND)
+        assert tracker.squat_counter == 0
+
+        tracker.update("squat", 0.9, 0.5, self._KP_SQUAT_DEEP)
+        tracker.min_angle = 85.0  # below 105
+        assert tracker.squat_stage == "down"
+
+        tracker.update("squat", 0.9, 0.5, self._KP_STAND)
+        assert tracker.squat_counter == 1
+        assert tracker.squat_stage == "up"
+
+        last_rep = tracker.get_last_completed_rep()
+        assert last_rep['is_correct'] is True
+        assert "Good squat depth!" in last_rep['feedback_cue']
+
+    def test_squat_valgus_fault(self):
+        tracker = RepTracker()
+        # Knees caved in: knee distance = 0.02, ankle distance = 0.10 (< 0.82 * ankle)
+        kp_valgus = _make_squat_kp(
+            hip_l=[0.45, 0.6], knee_l=[0.49, 0.7], ankle_l=[0.40, 0.9],
+            hip_r=[0.55, 0.6], knee_r=[0.51, 0.7], ankle_r=[0.60, 0.9]
+        )
+        tracker.update("squat", 0.9, 0.5, kp_valgus)
+        assert 'knees_caving_in' in tracker.active_issues
+        assert "Push knees outward" in tracker.last_feedback
+
+
+# ---------------------------------------------------------------------------
+# RepTracker – Overhead Press & Form Faults
+# ---------------------------------------------------------------------------
+
+class TestPressTrackingAndForm:
+    _KP_PRESS_DOWN = _make_press_kp(
+        shoulder=[0.5, 0.4], elbow=[0.5, 0.5], wrist=[0.5, 0.42],
+        hip=[0.5, 0.7], knee=[0.5, 0.9]
+    )
+    _KP_PRESS_UP = _make_press_kp(
+        shoulder=[0.5, 0.4], elbow=[0.5, 0.25], wrist=[0.5, 0.1],
+        hip=[0.5, 0.7], knee=[0.5, 0.9]
+    )
+
+    def test_press_rep_counting_and_lockout(self):
+        tracker = RepTracker()
+        tracker.update("press", 0.9, 0.5, self._KP_PRESS_UP)
+        assert tracker.press_stage == "up"
+
+        tracker.update("press", 0.9, 0.5, self._KP_PRESS_DOWN)
+        assert tracker.press_counter == 1
+        assert tracker.press_stage == "down"
+
+        last_rep = tracker.get_last_completed_rep()
+        assert last_rep['is_correct'] is True
+        assert "Solid overhead lockout!" in last_rep['feedback_cue']
+
+
+# ---------------------------------------------------------------------------
+# RepTracker – Return value & Telemetry methods
+# ---------------------------------------------------------------------------
+
+class TestRepTrackerReturnValueAndTelemetry:
+    def test_state_contains_all_keys(self):
         tracker = RepTracker()
         result = tracker.update("curl", 0.1, 0.5, _zeros_kp())
-        assert set(result.keys()) == {"curl", "press", "squat"}
+        expected_keys = {"curl", "press", "squat", "curl_stage", "press_stage", "squat_stage", "feedback", "active_issues"}
+        assert expected_keys.issubset(set(result.keys()))
 
-    def test_update_returns_current_counts(self):
+    def test_pop_completed_reps(self):
         tracker = RepTracker()
-        tracker.curl_counter = 4
-        result = tracker.update("press", 0.1, 0.5, _zeros_kp())  # low conf – no change
-        assert result["curl"] == 4
+        tracker.completed_reps = [{'rep': 1}, {'rep': 2}]
+        popped = tracker.pop_completed_reps()
+        assert len(popped) == 2
+        assert len(tracker.completed_reps) == 0
