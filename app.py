@@ -61,6 +61,26 @@ if 'chat_messages' not in st.session_state:
         {"role": "assistant", "content": "👋 Hi, I'm your **SpotterAI Workout Assistant**! Ask me anything about your workout history, like:\n- *'How has my squat depth changed this week?'*\n- *'Which exercise has the most form issues?'*\n- *'Show my stats for today'*"}
     ]
 
+# Automatically load GEMINI_API_KEY from secrets.toml or .env if present
+if not os.environ.get("GEMINI_API_KEY"):
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        pass
+
+if not os.environ.get("GEMINI_API_KEY"):
+    env_file = os.path.join(os.path.dirname(__file__), ".env")
+    if os.path.exists(env_file):
+        with open(env_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("GEMINI_API_KEY="):
+                    os.environ["GEMINI_API_KEY"] = line.split("=", 1)[1].strip().strip('"').strip("'")
+
+coach = CoachingAgent()
+chat_assistant = WorkoutChatAssistant(db=db)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Sidebar
 # ──────────────────────────────────────────────────────────────────────────────
@@ -69,29 +89,6 @@ with st.sidebar:
     st.caption('**Real-Time Biomechanical Coach & Analytics**')
     st.divider()
 
-    st.subheader('🤖 AI Coach Settings')
-    default_key = ""
-    try:
-        default_key = st.secrets.get("GEMINI_API_KEY", "")
-    except Exception:
-        pass
-    if not default_key:
-        default_key = os.environ.get("GEMINI_API_KEY", "")
-
-    api_key = st.text_input(
-        'Gemini / OpenAI API Key',
-        value=default_key,
-        type='password',
-        help='Powers natural conversational tone for Coach & Chat. The system grounds all answers in verified SQLite workout telemetry.'
-    )
-    if api_key:
-        os.environ['GEMINI_API_KEY'] = api_key
-        st.success('Gemini AI Coach & Chat Active ✨', icon='✨')
-
-    coach = CoachingAgent(api_key=api_key if api_key else None)
-    chat_assistant = WorkoutChatAssistant(db=db, api_key=api_key if api_key else None)
-
-    st.divider()
     st.subheader('⚙️ Vision Detection Thresholds')
     threshold1 = st.slider('Min Keypoint Detection Confidence', 0.0, 1.0, 0.5, step=0.05)
     threshold2 = st.slider('Min Tracking Confidence', 0.0, 1.0, 0.5, step=0.05)
