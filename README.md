@@ -7,7 +7,6 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-App-red.svg)](https://streamlit.io/)
 [![SQLite](https://img.shields.io/badge/SQLite-Structured_Logs-003B57?logo=sqlite)](https://www.sqlite.org/)
 [![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg)](https://www.docker.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI Status](https://github.com/Ridho-h/SpotterAI/actions/workflows/ci.yml/badge.svg)](https://github.com/Ridho-h/SpotterAI/actions)
 
 ---
@@ -214,7 +213,6 @@ SpotterAI/
 
 ---
 
-## 📄 License & Author
+## 👤 Author
 
 - **Author**: [Ridho-h](https://github.com/Ridho-h)
-- **License**: MIT License
