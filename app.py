@@ -99,8 +99,14 @@ with st.sidebar:
 # Global ML & Vision Models (Cached)
 # ──────────────────────────────────────────────────────────────────────────────
 model = build_model()
-mp_pose = mp.solutions.pose
-mp_drawing = mp.solutions.drawing_utils
+# Robust MediaPipe solutions import supporting modular & legacy packaging
+try:
+    import mediapipe.python.solutions.pose as mp_pose
+    import mediapipe.python.solutions.drawing_utils as mp_drawing
+except (ImportError, AttributeError):
+    mp_pose = mp.solutions.pose
+    mp_drawing = mp.solutions.drawing_utils
+
 pose = mp_pose.Pose(min_detection_confidence=threshold1, min_tracking_confidence=threshold2)
 
 ACTIONS = np.array(['curl', 'press', 'squat'])
