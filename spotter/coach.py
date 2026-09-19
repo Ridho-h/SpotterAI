@@ -370,18 +370,45 @@ class CoachingAgent:
     def _call_llm(self, prompt: str) -> Optional[str]:
         """Calls Gemini or OpenAI based on configured provider."""
         if self.provider == "gemini":
-            import google.generativeai as genai
+            models = [
+                "gemini-flash-latest",
+                "gemini-2.5-flash",
+                "gemini-flash-lite-latest",
+                "gemini-1.5-flash",
+                "gemini-pro",
+            ]
+            import requests
 
-            genai.configure(api_key=self.api_key)
-            # Try gemini-1.5-flash then gemini-pro
-            for model_name in ["gemini-1.5-flash", "gemini-pro"]:
+            for model_name in models:
                 try:
-                    model = genai.GenerativeModel(model_name)
-                    res = model.generate_content(prompt)
-                    if res and res.text:
-                        return res.text
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.api_key}"
+                    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                    resp = requests.post(url, json=payload, timeout=12)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text")
+                            if text:
+                                return text.strip()
                 except Exception:
                     continue
+
+            # Fallback to SDK
+            try:
+                import google.generativeai as genai
+
+                genai.configure(api_key=self.api_key)
+                for model_name in models:
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        res = model.generate_content(prompt)
+                        if res and res.text:
+                            return res.text.strip()
+                    except Exception:
+                        continue
+            except Exception:
+                pass
 
         elif self.provider == "openai":
             import openai

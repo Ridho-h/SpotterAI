@@ -70,14 +70,23 @@ with st.sidebar:
     st.divider()
 
     st.subheader('🤖 AI Coach Settings')
+    default_key = ""
+    try:
+        default_key = st.secrets.get("GEMINI_API_KEY", "")
+    except Exception:
+        pass
+    if not default_key:
+        default_key = os.environ.get("GEMINI_API_KEY", "")
+
     api_key = st.text_input(
-        'Gemini / OpenAI API Key (Optional)',
+        'Gemini / OpenAI API Key',
+        value=default_key,
         type='password',
-        help='Optional: Powers natural conversational tone for Coach & Chat. Without an API key, the system uses grounded deterministic rule-based analysis.'
+        help='Powers natural conversational tone for Coach & Chat. The system grounds all answers in verified SQLite workout telemetry.'
     )
     if api_key:
         os.environ['GEMINI_API_KEY'] = api_key
-        st.success('API Key loaded for enhanced dialogue!', icon='✨')
+        st.success('Gemini AI Coach & Chat Active ✨', icon='✨')
 
     coach = CoachingAgent(api_key=api_key if api_key else None)
     chat_assistant = WorkoutChatAssistant(db=db, api_key=api_key if api_key else None)
